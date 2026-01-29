@@ -69,7 +69,6 @@ export const Card: React.FC<CardProps> = ({ card, onClick, isSmall = false, isFa
             {!isSmall && (
                 <div className="mt-1 pt-1 border-t border-white/20 flex justify-between text-xs font-mono opacity-70">
                     <span>{card.type}</span>
-                    <span>{card.staticId}</span>
                 </div>
             )}
         </div>

@@ -39,7 +39,7 @@ export const useGameLogic = () => {
         const player = state.players[aiPlayerId];
         if (!player || !player.isAlive) return;
 
-        // ターンが変わっていたら状態リセット
+        // ターンが変わっていたら状態リセット（必要なら）
         if (aiStateRef.current.turnId !== state.gameId + '-' + state.turnPlayerId) {
             aiStateRef.current = {
                 turnId: state.gameId + '-' + state.turnPlayerId,
@@ -47,65 +47,53 @@ export const useGameLogic = () => {
             };
         }
 
-        // 既にこのターンで行動済み（カード使用完了）なら、ターン終了して終わり
-        // ただし、EFFECT_CHOICEの場合は「行動中」なので継続
-        if (state.phase === 'ACTION_SELECTION' && aiStateRef.current.hasActed) {
+        // 行動権がない場合、ターン終了
+        if (state.phase === 'ACTION_SELECTION' && (state.actionsRemaining ?? 0) <= 0) {
             // 行動完了後の余韻（ログ確認用）
-            await new Promise(r => setTimeout(r, 2500));
+            await new Promise(r => setTimeout(r, 1500));
             endTurn();
             return;
         }
 
         // 思考時間 (演出) - ターン開始時やフェーズ移行時
-        await new Promise(r => setTimeout(r, 2000));
+        await new Promise(r => setTimeout(r, 1500));
 
         // --- フェーズ別行動 ---
 
         if (state.phase === 'EFFECT_CHOICE') {
             // 選択待機状態 (Mystery Starのターゲット選択 or Star Choiceの選択)
             handleAiEffectChoice(aiPlayerId);
-            // 選択完了後はhasActedフラグを立てる（handleAiEffectChoice内で処理するか、次のステップで）
-            // ここでマークしておくと、次回のuseEffect呼び出し(ACTION_SELECTIONに戻った後)でendTurnされる
-            aiStateRef.current.hasActed = true;
             return;
         }
 
         if (state.phase === 'ACTION_SELECTION') {
-            // まだ行動していない場合
-            if (!aiStateRef.current.hasActed) {
-                // 手札があるかチェック
-                if (player.hand.length > 0) {
-                    const randomCard = player.hand[Math.floor(Math.random() * player.hand.length)];
+            // 手札があるかチェック
+            if (player.hand.length > 0) {
+                // 使用可能なカードのみを抽出（呪いのカードを除外）
+                const playableCards = player.hand.filter(c => !c.isLieStar && !c.isInvisible && !c.isCursed);
+
+                if (playableCards.length > 0) {
+                    const randomCard = playableCards[Math.floor(Math.random() * playableCards.length)];
 
                     // ターゲット選択が必要か？
-                    // プレイ時に即時解決しないカード（Star ChoiceやMystery Starの一部）は
-                    // ここでターゲット指定しても phase='EFFECT_CHOICE' に移行することがある。
-                    // その場合は次のuseEffectサイクルで上のブロックが処理する。
-
-                    const targetId = selectAiTarget(aiPlayerId, randomCard.type); // ヘルパー関数へ抽出
+                    const targetId = selectAiTarget(aiPlayerId, randomCard.type);
                     playCard(aiPlayerId, randomCard.id, targetId);
 
-                    // カードが「対象選択不要で即解決」または「単純な対象選択のみ」だった場合、
-                    // STATEは ACTION_SELECTION のままになる（はず）。
-                    // もし Mystery Star -> Target Selection になった場合は EFFECT_CHOICE になる。
-
-                    // ここでは「プレイした」事実を記録しない。
-                    // なぜなら、もし EFFECT_CHOICE に移行した場合、まだAIのターンは終わっていないから。
-                    // ACTION_SELECTION のままなら、完了とみなす。
-
-                    // しかし、playCardは同期的にStateを変えない（Reducerは同期的だが、このstate変数は古い）。
-                    // したがって、ここでは一旦 hasActed = true にしてしまうと、
-                    // もし本当は EFFECT_CHOICE になっていた場合に、次のループで何もできなくなる可能性がある？
-                    // いや、EFFECT_CHOICE のブロックは hasActed をチェックしていないので大丈夫。
-
-                    // 結論: ここで hasActed = true にする。
-                    // もし EFFECT_CHOICE になったら、上のブロックが走り、解決後に ACTION_SELECTION に戻る。
-                    // その時 hasActed=true なので endTurn される。
-                    aiStateRef.current.hasActed = true;
+                    // プレイ実行。State更新を待つため、ここでは何もしない。
+                    // 次のレンダリングで actionsRemaining が減っていれば、
+                    // 再びこの関数が呼ばれた確認時に endTurn 条件などをチェックする。
                 } else {
-                    // 手札なし（ありえないが）
-                    endTurn();
+                    // プレイできるカードがない（全て呪いカードなど）
+                    // タクティカルバーストが可能なら行う、無理ならエンド
+                    if (player.hp > 1 && (state.actionsRemaining ?? 0) > 0) {
+                        tacticalBurst(aiPlayerId);
+                    } else {
+                        endTurn();
+                    }
                 }
+            } else {
+                // 手札なし
+                endTurn();
             }
         }
     };
@@ -131,11 +119,14 @@ export const useGameLogic = () => {
     };
 
     const selectAiTarget = (aiPlayerId: string, cardType: string): string | undefined => {
+        // 攻撃対象: 自分以外
         const others = state.playerOrder.filter(pid => pid !== aiPlayerId && state.players[pid].isAlive);
+        // 回復・情報対象: 全員（自分含む）
         const aliveAll = state.playerOrder.filter(pid => state.players[pid].isAlive);
+
         let targetId: string | undefined;
 
-        if (['ATTACK', 'SPECIAL', 'LIE_STAR'].includes(cardType)) {
+        if (['ATTACK', 'SPECIAL'].includes(cardType)) {
             if (others.length > 0) {
                 targetId = others[Math.floor(Math.random() * others.length)];
             }

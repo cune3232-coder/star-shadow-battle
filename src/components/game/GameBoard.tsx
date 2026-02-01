@@ -375,7 +375,7 @@ export const GameBoard: React.FC = () => {
                     <div className={`
                     pointer-events-auto
                     flex justify-center p-4 items-end gap-1.5 overflow-x-auto transition-all duration-500 origin-bottom
-                    min-h-[160px] pb-50 md:pb-8
+                    min-h-[160px] ${isMyTurn ? (me.team === 'TRICKSTER' ? 'pb-36' : 'pb-50') : 'pb-36'} md:pb-8
                     ${!(showHand || isMyTurn) ? 'opacity-0 pointer-events-none' : ''}
                     md:translate-y-0 md:scale-100 md:opacity-100 md:grayscale-0 md:pointer-events-auto
                 `}>

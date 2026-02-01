@@ -21,10 +21,10 @@ export const StartScreen: React.FC = () => {
             // 1. Initialize Game State
             dispatch({ type: 'INIT_GAME', payload: { players, deck } });
 
-            // 2. Initial Draw (3 cards each)
-            players.forEach(p => {
-                dispatch({ type: 'DRAW_PHASE_AUTO', payload: { playerId: p.id, count: 3 } });
-            });
+            // 2. Initial Draw (Skipped: setupNewGame handles initial hands)
+            // players.forEach(p => {
+            //     dispatch({ type: 'DRAW_PHASE_AUTO', payload: { playerId: p.id, count: 3 } });
+            // });
 
             // 3. Start Turn for Player 1 (User)
             // This will set AP to 1 and trigger logs

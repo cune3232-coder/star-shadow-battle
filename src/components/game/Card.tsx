@@ -12,7 +12,15 @@ interface CardProps {
 
 export const Card: React.FC<CardProps> = ({ card, onClick, isSmall = false, isFaceDown = false, isSelected = false, className = '' }) => {
     // カードタイプごとの色分け
-    const getTypeColor = (type: CardType['type']) => {
+    const getTypeColor = (type: CardType['type'], staticId: string) => {
+        // --- Legendary Cards ---
+        if (staticId === 'omega_star') {
+            return 'border-yellow-400 bg-gradient-to-br from-slate-950 via-purple-900 to-slate-900 text-yellow-50 shadow-[0_0_20px_rgba(234,179,8,0.6)] ring-1 ring-yellow-500/50';
+        }
+        if (staticId === 'phoenix_star') {
+            return 'border-orange-400 bg-gradient-to-br from-red-950 via-orange-900 to-yellow-900 text-white shadow-[0_0_20px_rgba(249,115,22,0.6)] ring-1 ring-orange-500/50';
+        }
+
         switch (type) {
             case 'ATTACK': return 'border-red-500 bg-red-950/30 text-red-100';
             case 'HEAL': return 'border-green-500 bg-green-950/30 text-green-100';
@@ -39,7 +47,7 @@ export const Card: React.FC<CardProps> = ({ card, onClick, isSmall = false, isFa
         );
     }
 
-    const baseStyle = getTypeColor(card.type);
+    const baseStyle = getTypeColor(card.type, card.staticId);
 
     return (
         <div

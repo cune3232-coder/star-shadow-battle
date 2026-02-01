@@ -7,9 +7,10 @@ interface ActionControlsProps {
     onEndTurn: () => void;
     canBurst: boolean; // HP > 1 etc.
     actionsRemaining: number;
+    isRound1?: boolean; // New Prop
 }
 
-export const ActionControls: React.FC<ActionControlsProps> = ({ isMyTurn, onTacticalBurst, onEndTurn, canBurst, actionsRemaining }) => {
+export const ActionControls: React.FC<ActionControlsProps> = ({ isMyTurn, onTacticalBurst, onEndTurn, canBurst, actionsRemaining, isRound1 }) => {
     const [showConfirm, setShowConfirm] = useState(false);
 
     // 自分のターンでない場合は表示しない（あるいは無効化）
@@ -37,7 +38,7 @@ export const ActionControls: React.FC<ActionControlsProps> = ({ isMyTurn, onTact
                         </span>
                     </div>
                     <div className={`text-xs truncate flex-1 text-right ${noActions ? 'text-red-400 font-bold' : 'text-slate-400'}`}>
-                        {noActions ? '行動終了！ターンを終了してください' : 'アクションを選択'}
+                        {noActions ? '行動終了！ターンを終了してください' : isRound1 ? '⚠️ 情報カードのみ使用可能' : 'アクションを選択'}
                     </div>
                 </div>
 
@@ -45,16 +46,18 @@ export const ActionControls: React.FC<ActionControlsProps> = ({ isMyTurn, onTact
                 <div className="grid grid-cols-2 gap-3 h-12">
                     <button
                         onClick={() => setShowConfirm(true)}
-                        disabled={!canBurst || noActions}
+                        disabled={!canBurst || noActions || isRound1}
                         className={`
                             rounded-lg font-bold text-sm flex flex-col items-center justify-center leading-none border active:scale-95 transition-all
-                            ${canBurst && !noActions
+                            ${canBurst && !noActions && !isRound1
                                 ? 'bg-red-900/80 border-red-700 text-red-100 hover:bg-red-800'
                                 : 'bg-slate-800 border-slate-700 text-slate-600 cursor-not-allowed'}
                         `}
                     >
                         <span>TACTICAL BURST</span>
-                        <span className="text-[9px] opacity-70 mt-1 font-normal">HP-1 / 全入替 / 3ドロー</span>
+                        <span className="text-[9px] opacity-70 mt-1 font-normal">
+                            {isRound1 ? '第1幕:使用不可' : 'HP-1 / 全入替 / 3ドロー'}
+                        </span>
                     </button>
 
                     <button
@@ -84,6 +87,11 @@ export const ActionControls: React.FC<ActionControlsProps> = ({ isMyTurn, onTact
                 <div className="text-slate-400 text-xs text-center mr-4 min-w-[200px]">
                     {noActions ? (
                         <p className="text-red-400 font-bold animate-pulse text-sm">カード使用不可<br />ターンを終了してください</p>
+                    ) : isRound1 ? (
+                        <p className="text-yellow-400 font-bold text-sm bg-yellow-900/30 px-2 py-1 rounded border border-yellow-700/50">
+                            ⚠️ 第1幕: 情報収集フェーズ<br />
+                            <span className="text-[10px] font-normal opacity-80 decoration-none">情報カード使用 or ターン終了のみ</span>
+                        </p>
                     ) : (
                         <>
                             <p className="text-slate-300">カードをクリックしてPLAY</p>
@@ -94,17 +102,17 @@ export const ActionControls: React.FC<ActionControlsProps> = ({ isMyTurn, onTact
 
                 <button
                     onClick={() => setShowConfirm(true)}
-                    disabled={!canBurst || noActions}
+                    disabled={!canBurst || noActions || isRound1}
                     className={`
             px-6 py-3 rounded-lg font-bold tracking-wider shadow-lg border-2 transition-all
-            ${canBurst && !noActions
+            ${canBurst && !noActions && !isRound1
                             ? 'bg-red-600 border-red-400 text-white hover:bg-red-500 hover:scale-105 hover:shadow-red-900/50'
                             : 'bg-slate-800 border-slate-700 text-slate-500 cursor-not-allowed'}
           `}
                 >
                     タクティカルバースト
                     <span className="block text-[9px] font-normal opacity-80 mt-0.5">
-                        HP-1 / 手札全入替 / 3ドロー
+                        {isRound1 ? '第1幕: 使用不可' : 'HP-1 / 手札全入替 / 3ドロー'}
                     </span>
                 </button>
 

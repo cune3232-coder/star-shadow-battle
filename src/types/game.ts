@@ -33,6 +33,7 @@ export interface Player {
     isAlive: boolean;
     isRevealed: boolean; // 正体判明フラグ
     isTurn: boolean;     // ターン中フラグ
+    isPhoenixActive: boolean; // 不死鳥の加護
     statusEffects: string[]; // e.g., 'INVINCIBLE'
 
     // Chaos Mode New Fields
@@ -101,4 +102,6 @@ export interface GameState {
 
     // 推理メモ: プレイヤーIDごとの予想チーム
     playerNotes?: Record<string, 'RED' | 'BLUE' | 'TRICKSTER' | null>;
+
+    turnCount: number; // Proper turn counter (Total turns executed)
 }

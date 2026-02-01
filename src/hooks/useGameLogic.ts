@@ -1,5 +1,6 @@
 import { useRef } from 'react';
 import { useGameContext } from '../contexts/GameContext';
+import { decideAIAction } from '../utils/aiLogic';
 
 export const useGameLogic = () => {
     const { state, dispatch } = useGameContext();
@@ -13,11 +14,44 @@ export const useGameLogic = () => {
 
     // プレイヤーアクション: Play
     const playCard = (playerId: string, cardId: string, targetId?: string) => {
+        // --- Round 1 Restriction: Info Cards Only ---
+        // Check if we are in the first round (using turn count or log analysis)
+        // --- Round 1 Restriction: Info Cards Only ---
+        // Check if we are in the first round using turnCount
+        const isFirstRound = (state.turnCount || 0) <= state.playerOrder.length;
+
+        if (isFirstRound) {
+            const player = state.players[playerId];
+            if (player) {
+                const card = player.hand.find(c => c.id === cardId);
+                // Strict Rule: Only INFO allowed in Round 1 regardless of hand
+                if (card && card.type !== 'INFO') {
+                    // Human Player Restriction
+                    if (playerId === 'player-1') {
+                        alert('第1幕（最初の1巡）は、情報収集フェーズです。\n手札に情報カードがある場合は、それを使用してください。');
+                        return; // Cancel action
+                    }
+
+                    // AI Warning (Allow to proceed to prevent softlock)
+                    console.warn(`[Rules] ${playerId} attempted to play ${card.name} but should play INFO card in Round 1. Allowing to prevent softlock.`);
+                }
+            }
+        }
+
         dispatch({ type: 'PLAY_CARD', payload: { playerId, cardId, targetId } });
     };
 
     // プレイヤーアクション: Burst
     const tacticalBurst = (playerId: string) => {
+        // --- Round 1 Restriction: No Burst ---
+        // --- Round 1 Restriction: No Burst ---
+        const isFirstRound = (state.turnCount || 0) <= state.playerOrder.length;
+        if (isFirstRound) {
+            if (playerId === 'player-1') {
+                alert('第1幕（最初の1巡）は、情報収集フェーズです。戦術的バーストは使用できません。');
+            }
+            return;
+        }
         dispatch({ type: 'TACTICAL_BURST', payload: { playerId } });
     };
 
@@ -67,33 +101,19 @@ export const useGameLogic = () => {
         }
 
         if (state.phase === 'ACTION_SELECTION') {
-            // 手札があるかチェック
-            if (player.hand.length > 0) {
-                // 使用可能なカードのみを抽出（呪いのカードを除外）
-                const playableCards = player.hand.filter(c => !c.isLieStar && !c.isInvisible && !c.isCursed);
+            const decision = decideAIAction(state, aiPlayerId);
 
-                if (playableCards.length > 0) {
-                    const randomCard = playableCards[Math.floor(Math.random() * playableCards.length)];
-
-                    // ターゲット選択が必要か？
-                    const targetId = selectAiTarget(aiPlayerId, randomCard.type);
-                    playCard(aiPlayerId, randomCard.id, targetId);
-
-                    // プレイ実行。State更新を待つため、ここでは何もしない。
-                    // 次のレンダリングで actionsRemaining が減っていれば、
-                    // 再びこの関数が呼ばれた確認時に endTurn 条件などをチェックする。
-                } else {
-                    // プレイできるカードがない（全て呪いカードなど）
-                    // タクティカルバーストが可能なら行う、無理ならエンド
-                    if (player.hp > 1 && (state.actionsRemaining ?? 0) > 0) {
-                        tacticalBurst(aiPlayerId);
-                    } else {
-                        endTurn();
-                    }
-                }
+            if (decision) {
+                playCard(aiPlayerId, decision.cardId, decision.targetId);
             } else {
-                // 手札なし
-                endTurn();
+                // 有効なアクションがない場合
+                if (player.hp > 1 && (state.actionsRemaining ?? 0) > 0) {
+                    // バースト可能ならバースト（Anarchistならより積極的かもだが一旦これ）
+                    tacticalBurst(aiPlayerId);
+                } else {
+                    // 何もできなければターン終了
+                    endTurn();
+                }
             }
         }
     };
@@ -101,40 +121,31 @@ export const useGameLogic = () => {
     const handleAiEffectChoice = (aiPlayerId: string) => {
         // PendingEffectの内容を見て判断
         if (state.pendingEffect) {
-            const { targetId, sourceCard } = state.pendingEffect;
+            const { targetId } = state.pendingEffect;
 
             if (targetId === undefined) {
                 // ターゲット未定 (Mystery Starからの呼び出しなど)
-                // sourceCardがあればそのタイプに基づいてターゲットを決める
-                const type = sourceCard?.type || 'SPECIAL';
-                const tId = selectAiTarget(aiPlayerId, type);
-                if (tId) resolveMysteryTarget(tId);
+                // 今回の実装では decideAIAction は手札ベースなので、
+                // Mystery Star発動中のターゲット選択ロジックを簡易的にここに書くか、
+                // aiLogicにヘルパーを作る必要がある。
+                // ユーザー要望の decideAIAction は "手札のカードにスコア" とあるので、
+                // 発動中のカードに対するターゲット選択は別途考慮が必要。
+                // とりあえず既存のランダムロジック（または簡易ロジック）で凌ぐ
+                const targets = state.playerOrder.filter(pid => state.players[pid].isAlive);
+                const randomTarget = targets[Math.floor(Math.random() * targets.length)];
+                if (randomTarget) resolveMysteryTarget(randomTarget);
             } else {
-                // ターゲットは決まっているが、選択肢がある (Star Choiceなど)
-                // ランダムに選ぶ
-                const choice = Math.random() > 0.5 ? 'ATTACK' : 'HEAL';
-                resolveChoice(choice);
+                // Star Choice: 味方ならHEAL、敵ならATTACK
+                // ここも本来はAIロジックだが、簡易実装
+                const me = state.players[aiPlayerId];
+                const target = state.players[targetId];
+                const isFriend = me.team === target.team; // 簡易判定
+                resolveChoice(isFriend ? 'HEAL' : 'ATTACK');
             }
         }
     };
 
-    const selectAiTarget = (aiPlayerId: string, cardType: string): string | undefined => {
-        // 攻撃対象: 自分以外
-        const others = state.playerOrder.filter(pid => pid !== aiPlayerId && state.players[pid].isAlive);
-        // 回復・情報対象: 全員（自分含む）
-        const aliveAll = state.playerOrder.filter(pid => state.players[pid].isAlive);
 
-        let targetId: string | undefined;
-
-        if (['ATTACK', 'SPECIAL'].includes(cardType)) {
-            if (others.length > 0) {
-                targetId = others[Math.floor(Math.random() * others.length)];
-            }
-        } else if (['HEAL', 'DEFENSE', 'INFO'].includes(cardType)) {
-            targetId = aliveAll[Math.floor(Math.random() * aliveAll.length)];
-        }
-        return targetId;
-    };
 
     return {
         playCard,

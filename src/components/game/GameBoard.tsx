@@ -57,10 +57,10 @@ export const GameBoard: React.FC = () => {
     // 他のプレイヤー（順番通りに並べる）
     const otherPlayerIds = state.playerOrder.filter(id => id !== myPlayerId);
 
-    // 勝敗判定
-    const isMyAlive = me?.isAlive;
-    const isOthersDead = otherPlayerIds.every(pid => !state.players[pid].isAlive);
-    const isGameOver = (!isMyAlive || isOthersDead) && state.phase !== 'STARTING'; // STARTING中は無視
+    // 勝敗判定: state.winnerがある場合のみ完全終了
+    const isGameOver = !!state.winner;
+    const isMyAlive = me?.isAlive; // Restore this for UI checks
+    const isSpectating = !isMyAlive && !isGameOver;
 
     // AIターン制御
     useEffect(() => {
@@ -151,6 +151,12 @@ export const GameBoard: React.FC = () => {
             return;
         }
 
+        // --- Restriction: Cannot use INFO cards on self ---
+        if (selectedCard.type === 'INFO' && targetId === myPlayerId) {
+            alert('自分自身に対して情報カードを使用することはできません。（自分の正体は既に知っています）');
+            return;
+        }
+
         // 攻撃カードの自分選択制限を解除（ユーザー要望）
         // if (selectedCard.type === 'ATTACK' && targetId === myPlayerId) { ... }
 
@@ -174,12 +180,22 @@ export const GameBoard: React.FC = () => {
         tacticalBurst(myPlayerId);
     };
 
+    // --- Render ---
 
     return (
         <div className="h-[100dvh] w-full bg-slate-950 text-white overflow-hidden flex flex-col font-sans selection:bg-yellow-500/30 relative">
+
+            {/* Spectator Warning Banner */}
+            {isSpectating && (
+                <div className="absolute top-0 left-0 right-0 bg-red-900/80 text-white text-center py-1 z-50 animate-pulse font-bold tracking-widest border-b border-red-500 pointer-events-none">
+                    ⚠️ SPECTATOR MODE - 観戦中 ⚠️
+                </div>
+            )}
+
             {/* Header / Other Players */}
-            <div className="flex-none p-2 md:p-4 bg-slate-900/60 backdrop-blur-sm border-b border-slate-800 overflow-x-auto pt-12 md:pt-4 scrollbar-hide">
-                <div className="flex items-start gap-4 mx-auto w-max px-4">
+            {/* ... (existing header code) ... */}
+            <div className="flex-none p-1 md:p-4 bg-slate-900/60 backdrop-blur-sm border-b border-slate-800 overflow-x-auto pt-16 md:pt-4 mt-2 scrollbar-hide">
+                <div className="flex items-start gap-1 md:gap-4 mx-auto w-full md:w-max px-2 md:px-4">
                     {otherPlayerIds.map(pid => {
                         const handleNoteChange = (playerId: string, note: 'RED' | 'BLUE' | 'TRICKSTER' | null) => {
                             dispatch({ type: 'UPDATE_PLAYER_NOTE', payload: { playerId, note } });
@@ -212,15 +228,12 @@ export const GameBoard: React.FC = () => {
                 )}
             </div>
 
-            {/* Main Area (Center) */}
-            <div className="flex-1 overflow-y-auto relative p-4 pb-64 flex flex-col md:flex-row items-center justify-start md:justify-center bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-900 via-slate-950 to-black gap-4 md:gap-0">
+            {/* ... (Main Game Area) ... */}
+            <div className={`flex-1 overflow-y-auto relative p-4 pb-64 flex flex-col md:flex-row items-center justify-start md:justify-center bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-900 via-slate-950 to-black gap-4 md:gap-0 ${isSpectating ? 'grayscale-[50%]' : ''}`}>
 
-
-
-                {/* Compact Center Row (Game Objects Only) */}
+                {/* ... (Center Objects) ... */}
                 <div className="flex flex-row items-center justify-center gap-4 w-full mt-4 px-1 shrink-0">
-
-                    {/* Deck (Mini) */}
+                    {/* ... (Deck/Collapse/Discard) ... */}
                     <div className="w-16 h-24 bg-slate-800 border-2 border-slate-600 rounded relative shadow-md flex items-center justify-center shrink-0">
                         {state.deck.length > 0 ? (
                             <div className="absolute inset-0.5 bg-indigo-900/30 rounded border border-indigo-500/30 flex items-center justify-center">
@@ -232,7 +245,6 @@ export const GameBoard: React.FC = () => {
                         <span className="absolute -bottom-4 text-[9px] text-slate-500 font-bold tracking-wider">DECK</span>
                     </div>
 
-                    {/* Collapse Counter (Mini) - Center */}
                     <div className="flex flex-col items-center gap-1">
                         <div className={`
                                 w-12 h-12 rounded-full border-4 flex items-center justify-center text-lg font-black shadow-lg bg-slate-900 shrink-0
@@ -245,7 +257,6 @@ export const GameBoard: React.FC = () => {
                         <span className="text-[9px] text-slate-500 font-bold tracking-wider">LEVEL</span>
                     </div>
 
-                    {/* Discard Pile (Mini) */}
                     <div className="w-16 h-24 border border-slate-700/30 rounded border-dashed flex items-center justify-center relative bg-black/20 shrink-0">
                         {state.discardPile.length > 0 ? (
                             <div className="absolute inset-0">
@@ -262,7 +273,7 @@ export const GameBoard: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Active Card / Mystery Resolution Display */}
+                {/* Active Card ... */}
                 {state.activeCard && (
                     <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-none">
                         <div className="relative animate-bounce">
@@ -282,17 +293,12 @@ export const GameBoard: React.FC = () => {
                     </div>
                 )}
 
-                {/* Mobile Log Viewer & Toast */}
+                {/* Log Viewer ... */}
                 <LogViewer logs={state.logs} myPlayerId={myPlayerId} playerOrder={state.playerOrder} />
-
-                {/* Logs Overlay (PC Only) */}
                 <div className="hidden md:block absolute top-4 right-4 w-96 max-h-[80vh] overflow-y-auto bg-black/80 backdrop-blur p-4 rounded-lg border border-slate-700/80 shadow-2xl text-sm text-slate-300 font-mono pointer-events-auto z-30">
                     <h3 className="text-xs font-bold text-slate-400 uppercase mb-2 sticky top-0 bg-black/90 p-2 backdrop-blur border-b border-slate-700">行動ログ</h3>
                     {state.logs.slice().reverse().filter(log => {
-                        // 秘匿ログフィルタリング
-                        // visibleToがない場合は全員に表示
                         if (!log.visibleTo) return true;
-                        // visibleToがある場合は、自分が含まれている場合のみ表示
                         return log.visibleTo.includes(myPlayerId);
                     }).map(log => (
                         <div key={log.id} className="group mb-2 border-b border-white/10 pb-2 last:border-0 hover:bg-white/5 p-2 rounded transition-colors">
@@ -300,7 +306,6 @@ export const GameBoard: React.FC = () => {
                                 <span>{new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
                                 <span className="font-bold">{log.type}</span>
                             </div>
-
                             <p className={`
                                 leading-snug break-words
                                 ${log.type === 'ATTACK' ? 'text-rose-300' : ''}
@@ -310,8 +315,6 @@ export const GameBoard: React.FC = () => {
                             `}>
                                 {log.message}
                             </p>
-
-                            {/* 公開されたカードデータがある場合、ここに表示する */}
                             {log.data?.revealedCards && log.data.revealedCards.length > 0 && (
                                 <div className="mt-2 flex gap-1 flex-wrap bg-black/40 p-2 rounded border border-white/10">
                                     <span className="text-[10px] text-slate-500 w-full mb-1">公開された手札:</span>
@@ -327,10 +330,8 @@ export const GameBoard: React.FC = () => {
                 </div>
             </div>
 
-
-            {/* Left Bottom Controls (Cards & Status) */}
+            {/* ... (Left Bottom Controls) ... */}
             <div className="md:hidden fixed bottom-32 left-4 z-50 flex items-end gap-3 pointer-events-auto">
-                {/* Hand Toggle Button */}
                 <button
                     onClick={() => setShowHand(!showHand)}
                     className={`
@@ -340,14 +341,12 @@ export const GameBoard: React.FC = () => {
                     `}
                 >
                     <div className="relative w-5 h-5 mb-0.5">
-                        {/* Card Icon */}
                         <div className="absolute top-0 left-0 w-3.5 h-4.5 bg-current rounded-[2px] border border-white/20 transform -rotate-6"></div>
                         <div className="absolute top-0 left-1.5 w-3.5 h-4.5 bg-current rounded-[2px] border border-white/20 transform rotate-12"></div>
                     </div>
                     <span className="text-[8px] font-bold tracking-wide">CARDS</span>
                 </button>
 
-                {/* My Status (Moved to Left Bottom) */}
                 <div
                     className="h-14 bg-slate-900/90 border border-slate-600 rounded-2xl px-4 flex items-center gap-3 shadow-[0_4px_20px_rgba(0,0,0,0.4)] backdrop-blur-md cursor-pointer active:scale-95 transition-transform"
                     onClick={() => setShowRoleReveal(true)}
@@ -358,63 +357,62 @@ export const GameBoard: React.FC = () => {
                             {me.team === 'TRICKSTER' ? 'TRICK' : me.team}
                         </span>
                     </div>
-
                     <div className="w-px h-8 bg-slate-700/50"></div>
-
                     <div className="flex flex-col items-end justify-center">
                         <span className="text-[8px] text-slate-500 font-mono leading-none mb-0.5">HP</span>
                         <div className="font-mono font-bold leading-none">
-                            <span className={`text-xl ${me.hp <= 3 ? 'text-red-500 animate-pulse' : 'text-green-400'}`}>{me.hp}</span>
+                            <span className={`text-xl ${me.hp <= 3 ? 'text-red-500 animate-pulse' : 'text-slate-400'}`}>{me.hp}</span>
                             <span className="text-[10px] text-slate-500 ml-0.5">/{me.maxHp}</span>
                         </div>
                     </div>
                 </div>
             </div>
 
-            {/* My Area (Bottom - Fixed on Mobile) */}
+            {/* My Area (controls) */}
             <div className="flex-none fixed bottom-0 left-0 right-0 z-30 pointer-events-none md:relative md:z-auto md:bg-slate-900 md:border-t md:border-slate-700">
-                {/* Hand Area */}
-                <div className={`
+                {/* Hand Area - Hidden if speccing */}
+                {!isSpectating && (
+                    <div className={`
                     pointer-events-auto
                     flex justify-center p-4 items-end gap-1.5 overflow-x-visible transition-all duration-500 origin-bottom
-                    min-h-[160px] pb-44 md:pb-8
+                    min-h-[160px] pb-36 md:pb-8
                     ${!(showHand || isMyTurn) ? 'opacity-0 pointer-events-none' : ''}
                     md:translate-y-0 md:scale-100 md:opacity-100 md:grayscale-0 md:pointer-events-auto
                 `}>
-                    {me.hand.map((card) => {
-                        const isSelected = selectedCard?.id === card.id;
-                        return (
-                            <div
-                                key={card.id}
-                                className={`
+                        {me.hand.map((card) => {
+                            const isSelected = selectedCard?.id === card.id;
+                            return (
+                                <div
+                                    key={card.id}
+                                    className={`
                                     relative transition-all duration-200 transform origin-bottom hover:z-20
                                     ${isSelected ? '-translate-y-4 z-20 shadow-xl' : 'hover:-translate-y-2'}
                                     ${!isMyTurn ? 'grayscale opacity-80' : ''}
                                 `}
-                            >
-                                <Card
-                                    card={card}
-                                    isSelected={isSelected}
-                                    onClick={handleCardClick}
-                                    className="!w-20 !h-28 text-[9px]"
-                                />
-                            </div>
-                        );
-                    })}
-                </div>
+                                >
+                                    <Card
+                                        card={card}
+                                        isSelected={isSelected}
+                                        onClick={handleCardClick}
+                                        className="!w-20 !h-28 text-[9px]"
+                                    />
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
 
-                {/* Info Bar (Desktop Only) */}
-                <div
-                    className={`hidden md:flex absolute bottom-4 left-4 z-20 items-end gap-4 transition-all`}
-                >
-                    <div
-                        className={`text-white drop-shadow-md select-none ${targetSelectionMode ? 'cursor-pointer hover:scale-110 hover:skew-x-2' : 'pointer-events-none'}`}
-                        onClick={() => {
-                            if (targetSelectionMode) {
-                                handleTargetSelect(myPlayerId);
-                            }
-                        }}
-                    >
+                {/* Spectator Hand Message */}
+                {isSpectating && (
+                    <div className="h-[160px] flex items-center justify-center text-slate-500 font-mono animate-pulse">
+                        [ 観戦中: 操作できません ]
+                    </div>
+                )}
+
+                {/* Info Bar (Desktop) */}
+                <div className={`hidden md:flex absolute bottom-4 left-4 z-20 items-end gap-4 transition-all`}>
+                    <div className={`text-white drop-shadow-md select-none ${targetSelectionMode ? 'cursor-pointer hover:scale-110 hover:skew-x-2 pointer-events-auto' : 'pointer-events-none'}`}
+                        onClick={() => { if (targetSelectionMode) { handleTargetSelect(myPlayerId); } }}>
                         <p className={`font-bold text-xl ${targetSelectionMode ? 'text-yellow-400 animate-pulse underline' : ''}`}>
                             {me.name} <span className="text-sm font-normal opacity-70">({me.team})</span>
                         </p>
@@ -423,31 +421,31 @@ export const GameBoard: React.FC = () => {
                         </p>
                         {targetSelectionMode && <span className="text-xs text-yellow-500 block">👈 Click to Self-Target</span>}
                     </div>
-
-                    {/* Role Check Button */}
-                    <button
-                        onClick={() => setShowRoleReveal(true)}
-                        className="bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-xs px-3 py-1 rounded border border-slate-600 backdrop-blur pointer-events-auto"
-                        title="自分の役職と勝利条件を確認"
-                    >
+                    <button onClick={() => setShowRoleReveal(true)} className="bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-xs px-3 py-1 rounded border border-slate-600 backdrop-blur pointer-events-auto" title="自分の役職と勝利条件を確認">
                         役職確認
                     </button>
                 </div>
 
-
-
-                {/* Controls */}
                 <div className="flex flex-col items-center w-full pointer-events-auto">
                     <div className="mb-2">
                         <TricksterProgress player={me} deckCount={state.deck.length} totalPlayers={state.playerOrder.length} />
                     </div>
-                    <ActionControls
-                        isMyTurn={isMyTurn}
-                        onTacticalBurst={handleTacticalBurst}
-                        onEndTurn={endTurn}
-                        canBurst={me.hp > 1 && me.hand.length > 0}
-                        actionsRemaining={state.actionsRemaining ?? 0}
-                    />
+                    {/* Hide ActionControls if Spectating */}
+                    {!isSpectating ? (
+                        <ActionControls
+                            isMyTurn={isMyTurn}
+                            onTacticalBurst={handleTacticalBurst}
+                            onEndTurn={endTurn}
+                            canBurst={me.hp > 1 && me.hand.length > 0}
+                            actionsRemaining={state.actionsRemaining ?? 0}
+                            isRound1={state.logs.filter(l => l.type === 'SYSTEM' && l.message.includes('のターン')).length <= state.playerOrder.length}
+                        />
+                    ) : (
+                        <div className="w-full bg-slate-900 border-t border-red-900/50 p-4 text-center">
+                            <p className="text-red-400 font-bold mb-2">あなたは倒れました</p>
+                            <p className="text-slate-500 text-xs">決着がつくまで戦いを見届けましょう...</p>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -458,42 +456,26 @@ export const GameBoard: React.FC = () => {
                 title={selectedCard?.name}
                 footer={
                     <>
-                        <button
-                            onClick={() => setSelectedCard(null)}
-                            className="px-4 py-2 rounded text-slate-300 hover:text-white"
-                        >
-                            閉じる
-                        </button>
-                        <button
-                            onClick={handlePlayConfirm}
-                            className="px-6 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-bold shadow-lg shadow-indigo-500/30"
-                        >
-                            {selectedCard && isTargetRequired(selectedCard)
-                                ? '対象を選択して使用'
-                                : '使用する'}
+                        <button onClick={() => setSelectedCard(null)} className="px-4 py-2 rounded text-slate-300 hover:text-white">閉じる</button>
+                        <button onClick={handlePlayConfirm} className="px-6 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-bold shadow-lg shadow-indigo-500/30">
+                            {selectedCard && isTargetRequired(selectedCard) ? '対象を選択して使用' : '使用する'}
                         </button>
                     </>
                 }
             >
                 <div className="text-center py-4">
-                    <div className="flex justify-center mb-6">
-                        {selectedCard && <Card card={selectedCard} />}
-                    </div>
-                    <p className="text-lg leading-relaxed text-slate-200">
-                        {selectedCard?.description}
-                    </p>
-
+                    <div className="flex justify-center mb-6">{selectedCard && <Card card={selectedCard} />}</div>
+                    <p className="text-lg leading-relaxed text-slate-200">{selectedCard?.description}</p>
                 </div>
             </Modal>
 
-            {/* Game Result Modal */}
+            {/* Game Result Modal (Only on Winner) */}
             <Modal
-                isOpen={!!state.winner || isGameOver} // winner決定済み、またはローカル判定でGameOver
+                isOpen={!!state.winner}
                 title={
                     state.winner === 'RED_TEAM' ? "RED TEAM VICTORY" :
                         state.winner === 'BLUE_TEAM' ? "BLUE TEAM VICTORY" :
-                            state.winner === 'TRICKSTER' ? "TRICKSTER VICTORY" :
-                                !isMyAlive ? "DEFEAT..." : "GAME OVER"
+                            state.winner === 'TRICKSTER' ? "TRICKSTER VICTORY" : "GAME OVER"
                 }
                 footer={
                     <button
@@ -506,7 +488,7 @@ export const GameBoard: React.FC = () => {
                             ${!state.winner ? 'bg-slate-700 hover:bg-slate-600 text-slate-200' : ''}
                         `}
                     >
-                        もう一度遊ぶ
+                        ホームに戻る (リロード)
                     </button>
                 }
             >
@@ -530,12 +512,19 @@ export const GameBoard: React.FC = () => {
                         {state.winner === 'RED_TEAM' ? '青チームは殲滅されました。' :
                             state.winner === 'BLUE_TEAM' ? '赤チームは殲滅されました。' :
                                 state.winner === 'TRICKSTER' ? '漁夫の利... 最後の生存者となりました。' :
-                                    'あなたのHPは0になりました。'}
+                                    'ゲームセット'}
                     </p>
+
+                    {!isMyAlive && (
+                        <div className="mt-6 p-4 bg-slate-800 rounded border border-slate-700">
+                            <p className="text-yellow-400 font-bold mb-1">あなたの結果: 死亡</p>
+                            <p className="text-xs text-slate-500">最後まで観戦お疲れ様でした。</p>
+                        </div>
+                    )}
                 </div>
             </Modal>
-            {/* Target Selection Overlay (Mobile Only) */}
-            {/* Target Selection Overlay (Mobile Only) */}
+
+            {/* ... (keep other modals like TargetOverlay, StarChoice, RoleReveal) ... */}
             {(targetSelectionMode || (state.phase === 'EFFECT_CHOICE' && !!state.activeCard &&
                 (state.activeCard.staticId !== 'star_choice' || !state.pendingEffect?.targetId))) && (
                     <div className="md:hidden">
@@ -550,9 +539,6 @@ export const GameBoard: React.FC = () => {
                     </div>
                 )}
 
-
-
-            {/* Star Choice Modal */}
             <Modal
                 isOpen={state.phase === 'EFFECT_CHOICE' && isMyTurn &&
                     (state.activeCard?.staticId === 'star_choice' || state.pendingEffect?.sourceCard?.staticId === 'star_choice') &&
@@ -586,9 +572,6 @@ export const GameBoard: React.FC = () => {
                 </div>
             </Modal>
 
-
-
-            {/* Role Reveal Modal (ゲーム開始時) */}
             <RoleRevealModal
                 isOpen={showRoleReveal}
                 player={me}
@@ -598,3 +581,4 @@ export const GameBoard: React.FC = () => {
         </div>
     );
 };
+

@@ -34,9 +34,9 @@ const TRICK_CARDS = [
 ];
 
 const INFO_CARDS = [
-    { id: 'info_red', name: '情報：赤の星', count: 2, description: '対象が「レッド」か判定する' },
-    { id: 'info_blue', name: '情報：青の星', count: 2, description: '対象が「ブルー」か判定する' },
-    { id: 'info_trickster', name: '情報：深淵の星', count: 2, description: '対象が「トリックスター」か判定する' }
+    { id: 'info_red', name: '情報：赤の星', count: 4, description: '対象が「レッド」か判定する' },
+    { id: 'info_blue', name: '情報：青の星', count: 4, description: '対象が「ブルー」か判定する' },
+    { id: 'info_trickster', name: '情報：深淵の星', count: 4, description: '対象が「トリックスター」か判定する' }
 ];
 
 export const generateDeck = (): Card[] => {
@@ -93,6 +93,24 @@ export const generateDeck = (): Card[] => {
 
     return shuffleDeck(deck);
 };
+
+export const createOmegaStar = (): Card => ({
+    id: uuidv4(),
+    staticId: 'omega_star',
+    name: '終焉の星（オメガ）',
+    type: 'SPECIAL',
+    description: '【逆転】自分以外の全員に3ダメージを与え、自分は3回復する。',
+    isCursed: false
+});
+
+export const createPhoenixStar = (): Card => ({
+    id: uuidv4(),
+    staticId: 'phoenix_star',
+    name: '不死鳥の星',
+    type: 'SPECIAL',
+    description: '【再生】次の自分のターンまで、HPが0になった瞬間に全回復して復活する。',
+    isCursed: false
+});
 
 export const shuffleDeck = (deck: Card[]): Card[] => {
     const newDeck = [...deck];

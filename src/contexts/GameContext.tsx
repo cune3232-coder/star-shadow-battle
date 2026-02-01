@@ -1,7 +1,7 @@
 
 import { createContext, useContext, useReducer, type ReactNode, type Dispatch } from 'react';
 import type { GameState, Player, Card, GameLog, GamePhase } from '../types/game';
-import { shuffleDeck } from '../constants/cards';
+import { shuffleDeck, createOmegaStar, createPhoenixStar } from '../constants/cards';
 import { v4 as uuidv4 } from 'uuid';
 
 // --- Action Types ---
@@ -35,11 +35,12 @@ const initialState: GameState = {
     activeCard: null,
     actionsRemaining: 1,
     playerNotes: {},
+    turnCount: 0,
 };
 
 // --- Helper Functions ---
 const createLog = (message: string, type: GameLog['type'] = 'INFO', data?: GameLog['data']): GameLog => ({
-    id: typeof uuidv4 === 'function' ? uuidv4() : Math.random().toString(36),
+    id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : (typeof uuidv4 === 'function' ? uuidv4() : Math.random().toString(36)),
     timestamp: Date.now(),
     message,
     type,
@@ -143,6 +144,38 @@ const executeGalaxyReshuffleInternal = (state: GameState): GameState => {
         allCards = [...allCards, ...p.hand];
     });
 
+    // --- Evolution Logic ---
+    const nextCollapseCount = state.collapseCounter + 1;
+    let evolutionLogMsg = '';
+
+    if (nextCollapseCount === 1) {
+        // Phase 2: Reduce Info Cards (4 -> 2 each)
+        // Count current info cards
+        const infoRed = allCards.filter(c => c.staticId === 'info_red');
+        const infoBlue = allCards.filter(c => c.staticId === 'info_blue');
+        const infoTrick = allCards.filter(c => c.staticId === 'info_trickster');
+        const others = allCards.filter(c => c.type !== 'INFO');
+
+        // Keep only 2 of each
+        const newInfoRed = infoRed.slice(0, 2);
+        const newInfoBlue = infoBlue.slice(0, 2);
+        const newInfoTrick = infoTrick.slice(0, 2);
+
+        allCards = [...others, ...newInfoRed, ...newInfoBlue, ...newInfoTrick];
+        evolutionLogMsg = '【第2幕】情報カードが減少し、戦闘が激化します...';
+    } else if (nextCollapseCount >= 2) {
+        // Phase 3 (Climax): Remove ALL Info & Fake Stars, Add Omega & Phoenix Stars
+        allCards = allCards.filter(c => c.type !== 'INFO' && c.staticId !== 'false_star');
+
+        // Add 2 Omega Stars & 1 Phoenix Star
+        allCards.push(createOmegaStar());
+        allCards.push(createOmegaStar());
+        allCards.push(createPhoenixStar());
+
+        // 派手なログ
+        evolutionLogMsg = '【最終幕】伝説の星々（オメガ・フェニックス）が次元の狭間から出現した！';
+    }
+
     const newDeck = shuffleDeck(allCards);
     const updatedPlayers = { ...state.players };
     let currentDeckIndex = 0;
@@ -162,7 +195,7 @@ const executeGalaxyReshuffleInternal = (state: GameState): GameState => {
     let collapseLog: GameLog | null = null;
     let finalPlayersAfterCollapse = updatedPlayers;
 
-    if (state.collapseCounter >= 1) {
+    if (nextCollapseCount >= 1) {
         const damage = 1;
         const maxHpReduction = 2;
         Object.keys(finalPlayersAfterCollapse).forEach(pid => {
@@ -171,18 +204,21 @@ const executeGalaxyReshuffleInternal = (state: GameState): GameState => {
             const newHp = Math.max(0, Math.min(p.hp, newMaxHp) - damage);
             finalPlayersAfterCollapse[pid] = { ...p, maxHp: newMaxHp, hp: newHp, isAlive: newHp > 0 };
         });
-        collapseLog = createLog(`【宇宙の崩壊】Lv${state.collapseCounter + 1}: 全員に${damage}ダメージ / MaxHP-${maxHpReduction}`, 'SYSTEM');
+        collapseLog = createLog(`【宇宙の崩壊】Lv${nextCollapseCount}: 全員に${damage}ダメージ / MaxHP-${maxHpReduction}`, 'SYSTEM');
     }
 
     const reshuffleLog = createLog('【銀河再編】全カード回収・再配布完了。', 'RESHUFFLE');
+    let logs = [...state.logs, reshuffleLog];
+    if (collapseLog) logs.push(collapseLog);
+    if (evolutionLogMsg) logs.push(createLog(evolutionLogMsg, 'SYSTEM'));
 
     const interimState = {
         ...state,
         deck: finalDeck,
         players: finalPlayersAfterCollapse,
         discardPile: [],
-        collapseCounter: state.collapseCounter + 1,
-        logs: collapseLog ? [...state.logs, reshuffleLog, collapseLog] : [...state.logs, reshuffleLog],
+        collapseCounter: nextCollapseCount,
+        logs,
     };
     const winner = checkWinCondition(interimState);
     return { ...interimState, phase: winner ? 'GAME_OVER' : 'RESHUFFLE', winner };
@@ -197,8 +233,17 @@ const applyDamage = (players: Record<string, Player>, targetId: string, amount: 
         return { updatedPlayers: players, log: `${p.name}は星の結界で守られている！ (0ダメ)`, killOccurred: false };
     }
 
-    const newHp = Math.max(0, p.hp - amount);
-    const isNowDead = newHp === 0;
+    let newHp = Math.max(0, p.hp - amount);
+    let isNowDead = newHp === 0;
+    let phoenixLog = '';
+
+    // Phoenix Check (Resurrection)
+    if (newHp <= 0 && p.isPhoenixActive) {
+        newHp = p.maxHp; // Full Restore
+        isNowDead = false;
+        phoenixLog = ` ${p.name}は不死鳥の如く蘇った！（全回復）`;
+        // Effect consumed is handled by updatedPlayers update
+    }
 
     let sourcePlayer = sourceId ? players[sourceId] : undefined;
     if (sourcePlayer) {
@@ -212,8 +257,14 @@ const applyDamage = (players: Record<string, Player>, targetId: string, amount: 
         ...p,
         hp: newHp,
         isAlive: !isNowDead,
-        lastAttackerId: sourceId // Record the attacker
+        lastAttackerId: sourceId,
+        isPhoenixActive: p.isPhoenixActive // Default to current value
     };
+
+    // Explicitly handle phoenix consumption logic properly
+    if (p.hp - amount <= 0 && p.isPhoenixActive) {
+        newTargetPlayer.isPhoenixActive = false;
+    }
 
     // 自爆（自分への攻撃）の場合、HP減少と戦績更新をマージする必要がある
     if (sourceId === targetId && sourcePlayer) {
@@ -233,7 +284,7 @@ const applyDamage = (players: Record<string, Player>, targetId: string, amount: 
 
     return {
         updatedPlayers: nextPlayers,
-        log: `${p.name}に${amount}ダメージ！` + (isNowDead ? ' 撃破！' : ''),
+        log: `${p.name}に${amount}ダメージ！` + (isNowDead ? ' 撃破！' : '') + phoenixLog,
         killOccurred: isNowDead
     };
 };
@@ -380,12 +431,15 @@ const gameReducer = (state: GameState, action: GameAction): GameState => {
             const player = state.players[playerId];
             if (!player) return state;
 
+            // 1. Reset Phoenix Status (Effect expires on self turn start)
+            const playerReset = { ...player, isPhoenixActive: false };
+
             // Update Survivor logic
-            let turnsAtOne = player.turnsAtOneHp;
-            if (player.hp === 1) turnsAtOne += 1;
+            let turnsAtOne = playerReset.turnsAtOneHp;
+            if (playerReset.hp === 1) turnsAtOne += 1;
             else turnsAtOne = 0;
 
-            const updatedPlayer = { ...player, turnsAtOneHp: turnsAtOne };
+            const updatedPlayer = { ...playerReset, turnsAtOneHp: turnsAtOne };
 
             const newState: GameState = {
                 ...state,
@@ -395,7 +449,8 @@ const gameReducer = (state: GameState, action: GameAction): GameState => {
                 phase: 'ACTION_SELECTION',
                 logs: [...state.logs, createLog(`${player.name}のターン (HP:${player.hp}, AP:1)`, 'SYSTEM', { sourceId: playerId })],
                 activeCard: null,
-                pendingEffect: null
+                pendingEffect: null,
+                turnCount: (state.turnCount || 0) + 1,
             };
 
             const winner = checkWinCondition(newState);
@@ -441,7 +496,8 @@ const gameReducer = (state: GameState, action: GameAction): GameState => {
                 players: { ...currentState.players, [nextId]: updatedNext },
                 phase: 'ACTION_SELECTION',
                 logs: [...currentState.logs, createLog(`${updatedNext.name}のターンへ...`, 'SYSTEM', { sourceId: nextId })],
-                activeCard: null
+                activeCard: null,
+                turnCount: (currentState.turnCount || 0) + 1 // Increment turn count properly
             };
         }
 
@@ -492,6 +548,14 @@ const gameReducer = (state: GameState, action: GameAction): GameState => {
             const cardIndex = player.hand.findIndex(c => c.id === cardId);
             if (cardIndex === -1) return state;
             const card = player.hand[cardIndex];
+
+            // Strict Restriction for 'reversal' (起死回生): HP <= 5 only
+            if (card.staticId === 'reversal' && player.hp > 5) {
+                // Return state unchanged (effectively blocking usage)
+                // Optionally add a temporary system log or just fail silently/safely
+                console.warn(`[GameContext] Blocked Reversal usage for ${player.name} (HP: ${player.hp} > 5)`);
+                return state;
+            }
 
             // Remove Card from Hand
             const newHand = [...player.hand];
@@ -559,7 +623,7 @@ const gameReducer = (state: GameState, action: GameAction): GameState => {
                             return { status: 'DONE', players: np, logs: ['山札が枯渇しています'], deck: nd, discards: ndisc };
                         }
                         const tops = nd[0]; nd = nd.slice(1);
-                        if (tops.staticId === 'false_star') return { status: 'END', players: np, logs: ['ミステリー->嘘の星(シャッフル)'], deck: shuffleDeck([...nd, tops]), discards: ndisc };
+                        if (tops.staticId === 'false_star' || tops.staticId === 'invisible_star') return { status: 'END', players: np, logs: [`ミステリー->${tops.name}(シャッフル)`], deck: shuffleDeck([...nd, tops]), discards: ndisc };
 
                         const needTGT = ['ATTACK', 'HEAL', 'SPECIAL', 'INFO'].includes(tops.type) && !['star_fall', 'star_barrier', 'mystery_star', 'chaos_drive', 'time_leap'].includes(tops.staticId);
                         if (needTGT) return { status: 'PAUSE', players: np, deck: nd, discards: ndisc, logs: [`ミステリー喚起: [${tops.name}]`], pending: { cardId: tops.id, sourceCard: tops }, active: tops };
@@ -587,6 +651,35 @@ const gameReducer = (state: GameState, action: GameAction): GameState => {
                         }
                         break;
 
+                    case 'phoenix_star':
+                        {
+                            np[playerId] = { ...np[playerId], isPhoenixActive: true };
+                            msg = '不死鳥の加護を得た（次ターンまでHP0で復活）';
+                        }
+                        break;
+
+                    case 'omega_star':
+                        {
+                            let currentP = np;
+                            let logs: string[] = [];
+                            // 1. Damage all others
+                            Object.keys(currentP).forEach(pid => {
+                                if (pid !== playerId) {
+                                    const r = applyDamage(currentP, pid, 3, playerId);
+                                    currentP = r.updatedPlayers;
+                                    if (r.log) logs.push(r.log);
+                                }
+                            });
+                            // 2. Head self
+                            const h = healPlayer(currentP, playerId, 3, playerId);
+                            currentP = h.updatedPlayers;
+                            logs.push(h.log);
+
+                            np = currentP;
+                            msg = '【終焉】' + logs.join(' ');
+                        }
+                        break;
+
                     default: msg = '効果なし';
                 }
                 return { status: 'DONE', players: np, logs: [msg], bonusAP: ap, deck: nd, discards: ndisc };
@@ -596,7 +689,7 @@ const gameReducer = (state: GameState, action: GameAction): GameState => {
             let currentDeck = [...state.deck];
             let currentDiscards = [...state.discardPile, card];
 
-            if (card.staticId === 'star_choice' && targetId) return { ...state, players: currentPlayers, deck: currentDeck, discardPile: currentDiscards, logs: logsToAdd, phase: 'EFFECT_CHOICE', pendingEffect: { cardId: card.id, targetId, sourceCard: card }, activeCard: card };
+            if (card.staticId === 'star_choice' && targetId) return { ...state, players: currentPlayers, deck: currentDeck, discardPile: currentDiscards, logs: [...state.logs, ...logsToAdd], phase: 'EFFECT_CHOICE', pendingEffect: { cardId: card.id, targetId, sourceCard: card }, activeCard: card };
 
             // 呪いのカード処理（false_star, invisible_star）
             if (card.isCursed) {
@@ -643,36 +736,39 @@ const gameReducer = (state: GameState, action: GameAction): GameState => {
                 const winner = checkWinCondition({ ...state, players: res.players });
 
                 // 情報カードの場合、visibleToを設定
-                let finalLogs = [...state.logs, ...logsToAdd];
+                let newLogEntries: GameLog[] = [];
+
+                // Add preliminary logs (Usage, Reshuffle etc)
+                newLogEntries = [...logsToAdd];
+
                 if (['info_red', 'info_blue', 'info_trickster'].includes(card.staticId)) {
                     // 他のプレイヤーには秘密のログ
-                    finalLogs.push({
-                        id: `log-${Date.now()}-public`,
-                        timestamp: Date.now(),
-                        message: `${player.name}が${targetId ? res.players[targetId].name : '誰か'}に情報カードを使用しました（結果は秘密です）`,
-                        type: 'INFO' as const
-                    });
+                    newLogEntries.push(createLog(
+                        `${player.name}が${targetId ? res.players[targetId].name : '誰か'}に情報カードを使用しました（結果は秘密です）`,
+                        'INFO'
+                    ));
                     // 当事者のみに見えるログ
                     res.logs.forEach(l => {
-                        finalLogs.push({
-                            id: `log-${Date.now()}-${Math.random()}`,
-                            timestamp: Date.now(),
-                            message: l,
-                            type: 'SPECIAL' as const,
+                        newLogEntries.push({
+                            ...createLog(l, 'SPECIAL'),
                             visibleTo: [playerId, targetId!] // 使用者と対象のみ
                         });
                     });
                 } else if (card.staticId === 'star_readings_light') {
                     // 星読みの光は全員に公開
                     res.logs.forEach(l => {
-                        finalLogs.push(createLog(l, 'SPECIAL', { sourceId: playerId }));
+                        newLogEntries.push(createLog(l, 'SPECIAL', { sourceId: playerId }));
                     });
                 } else {
                     // 通常のカード
                     res.logs.forEach(l => {
-                        finalLogs.push(createLog(l, 'ATTACK', { sourceId: playerId }));
+                        newLogEntries.push(createLog(l, 'ATTACK', { sourceId: playerId }));
                     });
                 }
+
+                // Combine OLD state logs + NEW entries
+                // Use a Set or ID check if paranoia is needed, but spread should be fine if state is consistent
+                const finalLogs = [...state.logs, ...newLogEntries];
 
                 return {
                     ...state,

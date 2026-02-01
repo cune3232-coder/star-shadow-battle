@@ -30,10 +30,96 @@ const getValidTargets = (gameState: GameState, card: Card): string[] => {
     return [];
 };
 
-export const decideAIAction = (gameState: GameState, aiPlayerId: string): { cardId: string, targetId?: string } | null => {
+// カオスモード用: ランダムな行動を選択
+const getRandomAction = (gameState: GameState, aiPlayer: Player): { cardId: string, targetId?: string, isChaos: true } | null => {
+    // 使用可能なカードをフィルタ
+    const playableCards = aiPlayer.hand.filter(card => {
+        // 呪いカード等は除外
+        if (card.isLieStar || card.isInvisible || card.isCursed) return false;
+
+        // 起死回生の制限
+        if (card.staticId === 'reversal' && aiPlayer.hp > 5) return false;
+
+        // ★重要: ラウンド1制限（第1幕は情報カードのみ）
+        const isFirstRound = (gameState.turnCount || 0) <= gameState.playerOrder.length;
+        if (isFirstRound && card.type !== 'INFO') return false;
+
+        return true;
+    });
+
+    if (playableCards.length === 0) return null;
+
+    // ランダムにカードを選択
+    const randomCard = playableCards[Math.floor(Math.random() * playableCards.length)];
+
+    // グローバルカードならターゲット不要
+    if (isGlobalCard(randomCard)) {
+        return { cardId: randomCard.id, isChaos: true };
+    }
+
+    // ターゲットが必要な場合
+    let targets = getValidTargets(gameState, randomCard);
+
+    // ★重要: 攻撃カードは自分を除外（自殺防止）
+    if (randomCard.type === 'ATTACK' || randomCard.type === 'SPECIAL') {
+        targets = targets.filter(tid => tid !== aiPlayer.id);
+    }
+
+    // INFOカードは自分以外
+    if (randomCard.type === 'INFO') {
+        targets = targets.filter(tid => tid !== aiPlayer.id);
+    }
+
+    if (targets.length === 0) return null;
+
+    // ランダムにターゲット選択
+    const randomTarget = targets[Math.floor(Math.random() * targets.length)];
+
+    return { cardId: randomCard.id, targetId: randomTarget, isChaos: true };
+};
+
+// タクティカルバースト判定
+export const shouldBurst = (
+    aiPlayer: Player,
+    isChaosMode: boolean,
+    hasValidAction: boolean
+): boolean => {
+    // ★重要: HP 2以下ではバーストできない（バーストコスト=1HPなので安全マージン）
+    if (aiPlayer.hp <= 2) return false;
+
+    // 手札がなければバーストできない
+    if (aiPlayer.hand.length === 0) return false;
+
+    // カオスモード時: 5%の確率（ただしHP 3以上）
+    if (isChaosMode && aiPlayer.hp >= 3 && Math.random() < 0.05) return true;
+
+    // ANARCHIST: HP 8以上で50%
+    if (aiPlayer.team === 'TRICKSTER' &&
+        aiPlayer.tricksterObjective === 'ANARCHIST' &&
+        aiPlayer.hp >= 8) {
+        return Math.random() < 0.5;
+    }
+
+    // 有効な手がない + HP 5以上
+    if (!hasValidAction && aiPlayer.hp >= 5) return true;
+
+    return false;
+};
+
+
+export const decideAIAction = (gameState: GameState, aiPlayerId: string): { cardId: string, targetId?: string, isChaos?: boolean } | null => {
     const aiPlayer = gameState.players[aiPlayerId];
     if (!aiPlayer) return null;
 
+    // カオス判定 (30%の確率)
+    const isChaosMode = Math.random() < 0.3;
+
+    if (isChaosMode) {
+        console.log(`[AI Chaos] ${aiPlayer.name} がカオスモードで行動します！`);
+        return getRandomAction(gameState, aiPlayer);
+    }
+
+    // スマートモード: 既存のスコアリングロジック
     let bestScore = -9999;
     let bestAction: { cardId: string, targetId?: string } | null = null;
     let debugReason = '';
@@ -46,7 +132,6 @@ export const decideAIAction = (gameState: GameState, aiPlayerId: string): { card
         // Restriction: Reversal (起死回生) only allowed if HP <= 5
         if (card.staticId === 'reversal' && aiPlayer.hp > 5) continue;
 
-        // --- Round 1 Restriction Logic for AI ---
         // --- Round 1 Restriction Logic for AI ---
         const isFirstRound = (gameState.turnCount || 0) <= gameState.playerOrder.length;
         if (isFirstRound) {
@@ -93,7 +178,7 @@ export const decideAIAction = (gameState: GameState, aiPlayerId: string): { card
     // Pass if no good move
     if (bestScore <= 0) return null;
 
-    console.log(`[AI Logic] ${aiPlayer.name} chose: ${debugReason}`);
+    console.log(`[AI Smart] ${aiPlayer.name} chose: ${debugReason}`);
     return bestAction;
 };
 
@@ -167,6 +252,18 @@ const evaluateAction = (state: GameState, ai: Player, card: Card, targetId?: str
         default: score += 5; break;
     }
 
+    // --- 過剰回復防止 (Overheal Prevention) ---
+    if (card.type === 'HEAL' && target) {
+        if (target.hp >= target.maxHp) {
+            // SAINT例外: 回復回数稼ぎのため軽いペナルティ
+            if (ai.team === 'TRICKSTER' && ai.tricksterObjective === 'SAINT') {
+                score -= 50;
+            } else {
+                return -9999; // 絶対選ばない
+            }
+        }
+    }
+
     // --- B. Role Bonus (Switching by Role) ---
 
     // TRICKSTER Specific - 8 Roles Branching
@@ -207,21 +304,24 @@ const evaluateAction = (state: GameState, ai: Player, card: Card, targetId?: str
                 }
                 break;
 
-            case 'SURVIVOR': // 生存者
+            case 'SURVIVOR': // 生存者 (強化: hp <= 5)
                 // 防衛
-                if (ai.hp <= 3) {
+                if (ai.hp <= 5) {
                     if (card.type === 'HEAL' || card.type === 'DEFENSE') {
-                        if (!targetId || targetId === ai.id) score += 500;
+                        if (!targetId || targetId === ai.id) score += 1000; // 強化
                     }
                 }
                 break;
 
-            case 'ANARCHIST': // 崩壊
+            case 'ANARCHIST': // 崩壊 (強化: hp >= 8でカード使用推奨)
                 // 浪費
+                if (ai.hp >= 8) {
+                    score += 100; // カード使用を推奨
+                }
                 if (card.type === 'SPECIAL' || card.staticId === 'star_rain') score += 50;
                 break;
 
-            case 'SADIST': // 加虐者 (New)
+            case 'SADIST': // 加虐者
                 // HPが高い敵を削る
                 if (card.type === 'ATTACK' && target && target.hp >= 6) {
                     score += 50;
@@ -238,7 +338,7 @@ const evaluateAction = (state: GameState, ai: Player, card: Card, targetId?: str
 
             if (card.type === 'ATTACK') {
                 if (isEnemy) score += 50; // 敵確定/推測なら攻撃
-                if (isFriend) score -= 999; // 味方撃ち禁止
+                if (isFriend) return -9999; // 味方撃ち厳格禁止 (強化)
             }
 
             if (card.type === 'HEAL') {

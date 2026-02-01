@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { useGameContext } from '../contexts/GameContext';
-import { decideAIAction } from '../utils/aiLogic';
+import { decideAIAction, shouldBurst } from '../utils/aiLogic';
 
 export const useGameLogic = () => {
     const { state, dispatch } = useGameContext();
@@ -101,14 +101,23 @@ export const useGameLogic = () => {
         }
 
         if (state.phase === 'ACTION_SELECTION') {
+            // カード選択の前にバースト判定
             const decision = decideAIAction(state, aiPlayerId);
+            const isChaosMode = decision?.isChaos || false;
+
+            // タクティカルバースト判定
+            if (shouldBurst(player, isChaosMode, !!decision)) {
+                console.log(`[AI Burst] ${player.name} がタクティカルバーストを実行します`);
+                tacticalBurst(aiPlayerId);
+                return;
+            }
 
             if (decision) {
                 playCard(aiPlayerId, decision.cardId, decision.targetId);
             } else {
                 // 有効なアクションがない場合
                 if (player.hp > 1 && (state.actionsRemaining ?? 0) > 0) {
-                    // バースト可能ならバースト（Anarchistならより積極的かもだが一旦これ）
+                    // バースト可能ならバースト（上記のshouldBurstで判定済み）
                     tacticalBurst(aiPlayerId);
                 } else {
                     // 何もできなければターン終了
@@ -125,22 +134,36 @@ export const useGameLogic = () => {
 
             if (targetId === undefined) {
                 // ターゲット未定 (Mystery Starからの呼び出しなど)
-                // 今回の実装では decideAIAction は手札ベースなので、
-                // Mystery Star発動中のターゲット選択ロジックを簡易的にここに書くか、
-                // aiLogicにヘルパーを作る必要がある。
-                // ユーザー要望の decideAIAction は "手札のカードにスコア" とあるので、
-                // 発動中のカードに対するターゲット選択は別途考慮が必要。
-                // とりあえず既存のランダムロジック（または簡易ロジック）で凌ぐ
                 const targets = state.playerOrder.filter(pid => state.players[pid].isAlive);
                 const randomTarget = targets[Math.floor(Math.random() * targets.length)];
                 if (randomTarget) resolveMysteryTarget(randomTarget);
             } else {
-                // Star Choice: 味方ならHEAL、敵ならATTACK
-                // ここも本来はAIロジックだが、簡易実装
-                const me = state.players[aiPlayerId];
-                const target = state.players[targetId];
-                const isFriend = me.team === target.team; // 簡易判定
-                resolveChoice(isFriend ? 'HEAL' : 'ATTACK');
+                // Star Choice: カオス判定 (50%)
+                const isChaos = Math.random() < 0.5;
+
+                if (isChaos) {
+                    // カオスモード: ランダム選択
+                    const choice = Math.random() < 0.5 ? 'HEAL' : 'ATTACK';
+                    console.log(`[AI Chaos Choice] ${state.players[aiPlayerId].name} がカオスモードで ${choice} を選択`);
+                    resolveChoice(choice);
+                } else {
+                    // スマートモード: 味方ならHEAL、敵ならATTACK
+                    const me = state.players[aiPlayerId];
+                    const target = state.players[targetId];
+
+                    // より賢い判定: 正体判明済みなら確実に、そうでなければ推測
+                    let isFriend = false;
+                    if (target.isRevealed) {
+                        isFriend = me.team === target.team;
+                    } else {
+                        // 簡易判定: 同じチームと仮定
+                        isFriend = me.team === target.team;
+                    }
+
+                    const choice = isFriend ? 'HEAL' : 'ATTACK';
+                    console.log(`[AI Smart Choice] ${me.name} が ${choice} を選択 (対象: ${target.name})`);
+                    resolveChoice(choice);
+                }
             }
         }
     };

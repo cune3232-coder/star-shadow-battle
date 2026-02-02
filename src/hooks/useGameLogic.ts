@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useCallback } from 'react';
 import { useGameContext } from '../contexts/GameContext';
 import { decideAIAction, shouldBurst } from '../utils/aiLogic';
 
@@ -68,66 +68,7 @@ export const useGameLogic = () => {
         dispatch({ type: 'RESOLVE_MYSTERY_TARGET', payload: { targetId } });
     };
 
-    // AIロジック (State-Aware)
-    const runAiTurn = async (aiPlayerId: string) => {
-        const player = state.players[aiPlayerId];
-        if (!player || !player.isAlive) return;
-
-        // ターンが変わっていたら状態リセット（必要なら）
-        if (aiStateRef.current.turnId !== state.gameId + '-' + state.turnPlayerId) {
-            aiStateRef.current = {
-                turnId: state.gameId + '-' + state.turnPlayerId,
-                hasActed: false
-            };
-        }
-
-        // 行動権がない場合、ターン終了
-        if (state.phase === 'ACTION_SELECTION' && (state.actionsRemaining ?? 0) <= 0) {
-            // 行動完了後の余韻（ログ確認用）
-            await new Promise(r => setTimeout(r, 1500));
-            endTurn();
-            return;
-        }
-
-        // 思考時間 (演出) - ターン開始時やフェーズ移行時
-        await new Promise(r => setTimeout(r, 1500));
-
-        // --- フェーズ別行動 ---
-
-        if (state.phase === 'EFFECT_CHOICE') {
-            // 選択待機状態 (Mystery Starのターゲット選択 or Star Choiceの選択)
-            handleAiEffectChoice(aiPlayerId);
-            return;
-        }
-
-        if (state.phase === 'ACTION_SELECTION') {
-            // カード選択の前にバースト判定
-            const decision = decideAIAction(state, aiPlayerId);
-            const isChaosMode = decision?.isChaos || false;
-
-            // タクティカルバースト判定
-            if (shouldBurst(player, isChaosMode, !!decision)) {
-                console.log(`[AI Burst] ${player.name} がタクティカルバーストを実行します`);
-                tacticalBurst(aiPlayerId);
-                return;
-            }
-
-            if (decision) {
-                playCard(aiPlayerId, decision.cardId, decision.targetId);
-            } else {
-                // 有効なアクションがない場合
-                if (player.hp > 1 && (state.actionsRemaining ?? 0) > 0) {
-                    // バースト可能ならバースト（上記のshouldBurstで判定済み）
-                    tacticalBurst(aiPlayerId);
-                } else {
-                    // 何もできなければターン終了
-                    endTurn();
-                }
-            }
-        }
-    };
-
-    const handleAiEffectChoice = (aiPlayerId: string) => {
+    const handleAiEffectChoice = useCallback((aiPlayerId: string) => {
         // PendingEffectの内容を見て判断
         if (state.pendingEffect) {
             const { targetId } = state.pendingEffect;
@@ -166,7 +107,102 @@ export const useGameLogic = () => {
                 }
             }
         }
-    };
+    }, [state, resolveChoice, resolveMysteryTarget]);
+
+    // AIロジック (State-Aware)
+    const runAiTurn = useCallback(async (aiPlayerId: string) => {
+        // --- 強力なガード: 人間プレイヤーに対しては絶対に実行しない ---
+        if (aiPlayerId === 'player-1') {
+            console.warn(`[AI Guard] runAiTurn blocked for human player: ${aiPlayerId}`);
+            return;
+        }
+
+        const player = state.players[aiPlayerId];
+        if (!player || !player.isAlive) return;
+
+        // ★重要: 勝者が決定している場合はAIを動かさない
+        if (state.winner) return;
+
+        console.log(`[AI Turn] Starting turn for ${player.name} (${aiPlayerId})`);
+
+        // ターンが変わっていたら状態リセット（必要なら）
+        if (aiStateRef.current.turnId !== state.gameId + '-' + state.turnPlayerId) {
+            aiStateRef.current = {
+                turnId: state.gameId + '-' + state.turnPlayerId,
+                hasActed: false
+            };
+        }
+
+        // 行動権がない場合、ターン終了
+        if (state.phase === 'ACTION_SELECTION' && (state.actionsRemaining ?? 0) <= 0) {
+            // 行動完了後の余韻（ログ確認用）
+            await new Promise(r => setTimeout(r, 1500));
+            console.log(`[AI Turn] ${player.name} has no AP left, ending turn.`);
+            endTurn();
+            return;
+        }
+
+        // 思考時間 (演出) - ターン開始時やフェーズ移行時
+        await new Promise(r => setTimeout(r, 1500));
+
+        // --- フェーズ別行動 ---
+
+        if (state.phase === 'EFFECT_CHOICE') {
+            // 選択待機状態 (Mystery Starのターゲット選択 or Star Choiceの選択)
+            handleAiEffectChoice(aiPlayerId);
+            return;
+        }
+
+        if (state.phase === 'ACTION_SELECTION') {
+            // カード選択の前にバースト判定
+            const decision = decideAIAction(state, aiPlayerId);
+            const isChaosMode = decision?.isChaos || false;
+
+            // タクティカルバースト判定
+            if (shouldBurst(player, isChaosMode, !!decision)) {
+                console.log(`[AI Burst] ${player.name} がタクティカルバーストを実行します`);
+                tacticalBurst(aiPlayerId);
+                // ★重要: バースト後にAIが死亡していないかチェック
+                const updatedPlayer = state.players[aiPlayerId];
+                if (!updatedPlayer || !updatedPlayer.isAlive) {
+                    console.log(`[AI Turn] ${aiPlayerId} died during burst, ending turn`);
+                    return;
+                }
+                return;
+            }
+
+            if (decision) {
+                console.log(`[AI Action] ${player.name} plays ${decision.cardId} on ${decision.targetId || 'global'}`);
+                playCard(aiPlayerId, decision.cardId, decision.targetId);
+                // ★重要: カードプレイ後にAIが死亡していないかチェック
+                // (例: カオスドライブで自滅した場合)
+                const updatedPlayer = state.players[aiPlayerId];
+                if (!updatedPlayer || !updatedPlayer.isAlive) {
+                    console.log(`[AI Turn] ${aiPlayerId} died during card play, ending turn`);
+                    return;
+                }
+            } else {
+                // 有効なアクションがない場合
+
+                // 第1幕はバースト不可なので、アクションがなければ即ターンエンド
+                const isFirstRound = (state.turnCount || 0) <= state.playerOrder.length;
+                if (isFirstRound) {
+                    console.log(`[AI Turn] ${aiPlayerId} no info cards in Round 1, skipping turn`);
+                    endTurn();
+                    return;
+                }
+
+                if (player.hp > 1 && (state.actionsRemaining ?? 0) > 0) {
+                    // バースト可能ならバースト（上記のshouldBurstで判定済み）
+                    tacticalBurst(aiPlayerId);
+                } else {
+                    // 何もできなければターン終了
+                    console.log(`[AI Turn] ${player.name} no valid actions, ending turn`);
+                    endTurn();
+                }
+            }
+        }
+    }, [state, playCard, tacticalBurst, endTurn, handleAiEffectChoice]);
 
 
 

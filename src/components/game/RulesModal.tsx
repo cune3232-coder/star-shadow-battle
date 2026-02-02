@@ -29,6 +29,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose }) => {
                         <li>• <span className="font-semibold">カード使用</span>: AP 1を消費</li>
                         <li>• <span className="font-semibold">タクティカルバースト</span>: AP 1、HP-1、手札を全て捨てて新しく3枚ドロー</li>
                         <li>• <span className="font-semibold">ターン終了</span>: 残りAPを放棄。手札が3枚未満なら3枚になるまでドロー</li>
+                        <li className="text-yellow-400">• <span className="font-semibold">第1幕制限</span>: 最初の1周は情報カードのみ使用可能（情報収集フェーズ）</li>
                     </ul>
                 </div>
 

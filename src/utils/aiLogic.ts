@@ -31,21 +31,31 @@ const getValidTargets = (gameState: GameState, card: Card): string[] => {
 };
 
 // カオスモード用: ランダムな行動を選択
-const getRandomAction = (gameState: GameState, aiPlayer: Player): { cardId: string, targetId?: string, isChaos: true } | null => {
-    // 使用可能なカードをフィルタ
+export const getRandomAction = (gameState: GameState, aiPlayerId: string): { cardId: string, targetId?: string, isChaos?: boolean } | null => {
+    const aiPlayer = gameState.players[aiPlayerId];
+    if (!aiPlayer) return null;
+
     const playableCards = aiPlayer.hand.filter(card => {
+        // ★重要: ラウンド1制限（第1幕は情報カードのみ）
+        const isFirstRound = (gameState.turnCount || 0) <= gameState.playerOrder.length;
+        if (isFirstRound && card.type !== 'INFO') {
+            // console.log(`[DEBUG] AI ${aiPlayer.name}: Skipping ${card.name} (Not INFO in Round 1)`);
+            return false;
+        }
+
+        // コストチェック (すべて1アクションと仮定)
+        if ((gameState.actionsRemaining || 0) < 1) return false;
+
         // 呪いカード等は除外
         if (card.isLieStar || card.isInvisible || card.isCursed) return false;
 
         // 起死回生の制限
         if (card.staticId === 'reversal' && aiPlayer.hp > 5) return false;
 
-        // ★重要: ラウンド1制限（第1幕は情報カードのみ）
-        const isFirstRound = (gameState.turnCount || 0) <= gameState.playerOrder.length;
-        if (isFirstRound && card.type !== 'INFO') return false;
-
         return true;
     });
+
+    console.log(`[DEBUG] AI ${aiPlayer.name} (Round 1: ${(gameState.turnCount || 0) <= gameState.playerOrder.length}): Playable cards:`, playableCards.map(c => c.name));
 
     if (playableCards.length === 0) return null;
 
@@ -116,7 +126,7 @@ export const decideAIAction = (gameState: GameState, aiPlayerId: string): { card
 
     if (isChaosMode) {
         console.log(`[AI Chaos] ${aiPlayer.name} がカオスモードで行動します！`);
-        return getRandomAction(gameState, aiPlayer);
+        return getRandomAction(gameState, aiPlayer.id);
     }
 
     // スマートモード: 既存のスコアリングロジック

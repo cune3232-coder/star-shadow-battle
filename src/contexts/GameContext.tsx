@@ -195,7 +195,7 @@ const executeGalaxyReshuffleInternal = (state: GameState): GameState => {
     let collapseLog: GameLog | null = null;
     let finalPlayersAfterCollapse = updatedPlayers;
 
-    if (nextCollapseCount >= 1) {
+    if (nextCollapseCount >= 2) {
         const damage = 1;
         const maxHpReduction = 2;
         Object.keys(finalPlayersAfterCollapse).forEach(pid => {

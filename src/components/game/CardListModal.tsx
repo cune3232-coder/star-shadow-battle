@@ -47,11 +47,11 @@ export const CardListModal: React.FC<CardListModalProps> = ({ isOpen, onClose })
 
                 {/* 情報カード */}
                 <div>
-                    <h3 className="font-bold text-yellow-400 mb-2 text-base">情報カード (INFO) - 計6枚</h3>
+                    <h3 className="font-bold text-yellow-400 mb-2 text-base">情報カード (INFO) - 計12枚</h3>
                     <ul className="space-y-1 text-slate-300">
-                        <li>• <span className="font-semibold">情報：赤の星</span> (2枚) - 対象が「レッド」か判定</li>
-                        <li>• <span className="font-semibold">情報：青の星</span> (2枚) - 対象が「ブルー」か判定</li>
-                        <li>• <span className="font-semibold">情報：深淵の星</span> (2枚) - 対象が「トリックスター」か判定</li>
+                        <li>• <span className="font-semibold">情報:赤の星</span> (4枚) - 対象が「レッド」か判定</li>
+                        <li>• <span className="font-semibold">情報:青の星</span> (4枚) - 対象が「ブルー」か判定</li>
+                        <li>• <span className="font-semibold">情報:深淵の星</span> (4枚) - 対象が「トリックスター」か判定</li>
                     </ul>
                 </div>
 
@@ -65,7 +65,7 @@ export const CardListModal: React.FC<CardListModalProps> = ({ isOpen, onClose })
                 </div>
 
                 <div className="pt-2 border-t border-slate-700 text-center text-slate-400">
-                    合計: 48枚
+                    合計: 60枚
                 </div>
             </div>
         </Modal>

@@ -77,6 +77,11 @@ export const GameBoard: React.FC = () => {
             return;
         }
 
+        // 3. ★重要: 勝者が決定している場合はAIを動かさない
+        if (state.winner) {
+            return;
+        }
+
         // --- ここから下のみAI処理 ---
 
         // 思考時間（1秒）をおいてからアクション
@@ -369,7 +374,24 @@ export const GameBoard: React.FC = () => {
             </div>
 
             {/* My Area (controls) */}
-            <div className="flex-none fixed bottom-0 left-0 right-0 z-30 pointer-events-none md:relative md:z-auto md:bg-slate-900 md:border-t md:border-slate-700">
+            <div
+                className={`flex-none fixed bottom-0 left-0 right-0 z-30 pointer-events-none md:relative md:z-auto md:bg-slate-900 md:border-t md:border-slate-700 transition-all duration-300
+                    ${(targetSelectionMode || (state.phase === 'EFFECT_CHOICE' && !!state.activeCard)) ? 'md:bg-yellow-900/20 md:border-yellow-500/50 md:shadow-[0_0_20px_rgba(234,179,8,0.3)]' : ''}
+                `}
+            >
+                {/* Clickable Overlay for Self-Targeting (PC only) */}
+                {(targetSelectionMode || (state.phase === 'EFFECT_CHOICE' && !!state.activeCard)) && (
+                    <div
+                        className="hidden md:block absolute inset-0 cursor-pointer z-0"
+                        onClick={() => {
+                            if (targetSelectionMode) {
+                                handleTargetSelect(myPlayerId);
+                            } else if (state.phase === 'EFFECT_CHOICE' && state.activeCard) {
+                                resolveMysteryTarget(myPlayerId);
+                            }
+                        }}
+                    />
+                )}
                 {/* Hand Area - Hidden if speccing */}
                 {!isSpectating && (
                     <div className={`
@@ -411,15 +433,22 @@ export const GameBoard: React.FC = () => {
 
                 {/* Info Bar (Desktop) */}
                 <div className={`hidden md:flex absolute bottom-4 left-4 z-20 items-end gap-4 transition-all`}>
-                    <div className={`text-white drop-shadow-md select-none ${targetSelectionMode ? 'cursor-pointer hover:scale-110 hover:skew-x-2 pointer-events-auto' : 'pointer-events-none'}`}
-                        onClick={() => { if (targetSelectionMode) { handleTargetSelect(myPlayerId); } }}>
-                        <p className={`font-bold text-xl ${targetSelectionMode ? 'text-yellow-400 animate-pulse underline' : ''}`}>
+                    <div className={`text-white drop-shadow-md select-none ${(targetSelectionMode || (state.phase === 'EFFECT_CHOICE' && !!state.activeCard)) ? 'cursor-pointer hover:scale-110 hover:skew-x-2 pointer-events-auto' : 'pointer-events-none'}`}
+                        onClick={() => {
+                            if (targetSelectionMode) {
+                                handleTargetSelect(myPlayerId);
+                            } else if (state.phase === 'EFFECT_CHOICE' && state.activeCard) {
+                                // ミステリースターのターゲット選択
+                                resolveMysteryTarget(myPlayerId);
+                            }
+                        }}>
+                        <p className={`font-bold text-xl ${(targetSelectionMode || (state.phase === 'EFFECT_CHOICE' && !!state.activeCard)) ? 'text-yellow-400 animate-pulse underline' : ''}`}>
                             {me.name} <span className="text-sm font-normal opacity-70">({me.team})</span>
                         </p>
                         <p className={`font-mono text-2xl ${me.hp <= 2 ? 'text-red-500 animate-pulse' : 'text-green-400'}`}>
                             HP: {me.hp} <span className="text-sm text-slate-400">/ {me.maxHp}</span>
                         </p>
-                        {targetSelectionMode && <span className="text-xs text-yellow-500 block">👈 Click to Self-Target</span>}
+                        {(targetSelectionMode || (state.phase === 'EFFECT_CHOICE' && !!state.activeCard)) && <span className="text-xs text-yellow-500 block">👈 Click to Self-Target</span>}
                     </div>
                     <button onClick={() => setShowRoleReveal(true)} className="bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-xs px-3 py-1 rounded border border-slate-600 backdrop-blur pointer-events-auto" title="自分の役職と勝利条件を確認">
                         役職確認
@@ -548,9 +577,14 @@ export const GameBoard: React.FC = () => {
                 onClose={() => { }} // 強制選択なので閉じられない
             >
                 <div className="text-center py-6">
-                    <p className="mb-6 text-slate-300">
+                    <p className="mb-2 text-slate-300">
                         対象に対する効果を選択してください。
                     </p>
+                    {state.pendingEffect?.targetId && (
+                        <p className="mb-6 text-lg font-bold text-yellow-400">
+                            対象: {state.players[state.pendingEffect.targetId]?.name || '不明'}
+                        </p>
+                    )}
                     <div className="flex justify-center gap-6">
                         <button
                             onClick={() => resolveChoice('HEAL')}
